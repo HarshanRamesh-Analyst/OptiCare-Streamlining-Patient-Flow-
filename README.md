@@ -1,11 +1,11 @@
 # Improving Observation Unit (OU) Operations at Montanaro Hospital
 
----
+![Alt text](Dataset/OU_Cover.jpg)
 
 ## Project Overview
 This project focuses on enhancing the operational efficiency of Montanaro Hospital’s 23-bed Observation Unit (OU). The primary goal is to reduce patient transfers ("flipping") from observation to inpatient status through predictive analytics, data-driven insights, and operational optimization.
 
----
+
 
 ## Problem Statement
 Frequent patient flipping leads to:
@@ -20,7 +20,6 @@ Frequent patient flipping leads to:
 - Bed utilization: 83%.
 - LWBS (Left Without Being Seen) cases: 884 annually.
 
----
 
 ## Dataset Details
 The dataset includes:
@@ -32,9 +31,8 @@ The dataset includes:
 ### Data Preparation
 - Missing values imputed (e.g., blood pressure differences calculated).
 - Categorical variables encoded into dummy variables.
-- Recoding of "Flipped" status (Yes/No).
+- Recording of "Flipped" status (Yes/No).
 
----
 
 ## Exploratory Data Analysis (EDA)
 ### Key Findings
@@ -51,7 +49,6 @@ The dataset includes:
 - **Syncope**: 300+ cases, highest patient count.
 - Patients with **temperature ≥99°F** and **pulse ≥103 bpm** are more likely to flip.
 
----
 
 ## Model Development
 Three predictive models were developed to predict flipping:
@@ -77,7 +74,6 @@ Three predictive models were developed to predict flipping:
 ### Selected Model
 - **Logistic Regression** provides the best balance between interpretability and predictive performance.
 
----
 
 ## Operational Improvements
 ### Adjusting Flipping Cutoff Rates
@@ -96,7 +92,6 @@ Three predictive models were developed to predict flipping:
 - Annual capacity addition: 570 patients.
 - LWBS cases reduced by 46%.
 
----
 
 ## Recommendations
 ### Short-Term
@@ -113,7 +108,6 @@ Three predictive models were developed to predict flipping:
 - Bed utilization: ≥88%.
 - Revenue increase: $618,800 annually.
 
----
 
 ## Expected Outcomes
 - **Operational Efficiency**:
@@ -126,6 +120,6 @@ Three predictive models were developed to predict flipping:
 - **Scalability**:
   - Framework adaptable to other healthcare institutions.
 
----
+
 
 This README provides a detailed roadmap for improving the Observation Unit’s operations at Montanaro Hospital using data-driven strategies and predictive analytics to deliver measurable outcomes.
