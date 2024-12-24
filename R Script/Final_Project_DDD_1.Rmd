@@ -1,0 +1,389 @@
+---
+title: "Final_ project_DDD"
+author: "Harshan Ragavandar Ramesh (11055132)."
+date: "2024-10-05"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+library("Amelia")  # For missing data visualization
+library("ranger")
+```{r,include=FALSE}
+# Load necessary libraries
+library("ggplot2")
+library("dplyr")
+library("caret")
+library("rpart")
+library("randomForest")
+library(purrr)
+
+```
+
+#### **1. Data Loading and Initial Summary**
+
+```{r}
+# Step 1: Load the dataset
+ou_data <- read.csv("D:/MERCER/Sem 3/Data Driven/Final Project/OUData.csv")
+summary(ou_data)
+
+# Step 2: Convert necessary columns to appropriate types
+# Convert character variables to numeric variables
+ou_data$BloodPressureUpper <- as.numeric(ou_data$BloodPressureUpper)
+ou_data$BloodPressureDiff <- as.numeric(ou_data$BloodPressureDiff)
+ou_data$Pulse <- as.numeric(ou_data$Pulse)
+ou_data$PulseOximetry <- as.numeric(ou_data$PulseOximetry)
+ou_data$Respirations <- as.numeric(ou_data$Respirations)
+ou_data$Temperature <- as.numeric(ou_data$Temperature)
+
+# Change 0 to "No" and 1 to "Yes" for Flipped variable
+ou_data$Flipped <- ifelse(ou_data$Flipped == 1, "Yes", "No")
+
+# Convert character variables to factor variables
+ou_data$Gender <- as.factor(ou_data$Gender)
+ou_data$PrimaryInsuranceCategory <- as.factor(ou_data$PrimaryInsuranceCategory)
+ou_data$DRG01 <- as.factor(ou_data$DRG01)
+ou_data$Flipped <- as.factor(ou_data$Flipped)
+
+# Drop InitPatientClassAndFirstPostOUClass and ObservationRecordKey variables
+ou_data <- subset(ou_data, select = -c(InitPatientClassAndFirstPostOUClass, ObservationRecordKey))
+
+# Step 3: Identify and clean non-numeric values
+# Check for any non-numeric values in BloodPressureUpper and OU_LOS_hrs using str() instead of unique()
+str(ou_data)
+
+# Step 4: Check for missing values
+if (any(is.na(ou_data))) {
+  message("Missing values found in the dataset.")
+} else {
+  message("No missing values found.")
+}
+
+# Step 5: Impute missing values using the mean of numerical variable columns, and using formula BloodPressureDiff = BloodPresureUpper - BloodPressureLower for BloodPressureDiff columns
+ou_data$PulseOximetry[is.na(ou_data$PulseOximetry)] <- mean(ou_data$PulseOximetry, na.rm = TRUE)
+ou_data$BloodPressureUpper[is.na(ou_data$BloodPressureUpper)] <- mean(ou_data$BloodPressureUpper, na.rm = TRUE)
+ou_data$Pulse[is.na(ou_data$Pulse)] <- mean(ou_data$Pulse, na.rm = TRUE)
+ou_data$Respirations[is.na(ou_data$Respirations)] <- mean(ou_data$Respirations, na.rm = TRUE)
+ou_data$Temperature[is.na(ou_data$Temperature)] <- mean(ou_data$Temperature, na.rm = TRUE)
+ou_data$BloodPressureDiff[is.na(ou_data$BloodPressureDiff)] <- mean(ou_data$BloodPressureUpper-ou_data$BloodPressureLower, na.rm = TRUE)
+
+
+# Step 6: Verify the dataset is clean again
+if (sum(is.na(ou_data)) == 0) {
+  message("Dataset is clean with no missing values.")
+} else {
+  message("There are still missing values.")
+}
+
+#Summary data
+summary(ou_data)
+
+```
+#### **2. Exploratory Data Analysis (EDA)**
+
+##### **2.1 Distribution of Variables (Numerical and Categorical Variables)**
+```{r}
+#Step 1: Creat bar plot for categorical variables
+# Bar plot for Gender
+ggplot(ou_data, aes(x = Gender)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of Gender")
+
+# Bar plot for Primary Insurance Category
+ggplot(ou_data, aes(x = PrimaryInsuranceCategory)) +
+  geom_bar(fill = "darkorange") +
+  labs(title = "Distribution of Primary Insurance Category")
+
+# Bar plot for Flipped (Yes/No)
+ggplot(ou_data, aes(x = Flipped)) +
+  geom_bar(fill = "green") +
+  labs(title = "Distribution of Flipped")
+
+# Step 2: Create histograms for numerical variables
+# Create numeric_vars
+numeric_vars <- ou_data[, sapply(ou_data, is.numeric)]
+
+# Load rlang for tidy evaluation
+library(rlang)
+
+for (var in names(numeric_vars)) {
+  print(
+    ggplot(ou_data, aes(x = !!sym(var))) +
+      geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7, na.rm = TRUE) +
+      theme_minimal() +
+      labs(title = paste("Histogram of", var), x = var, y = "Frequency")
+  )
+}
+
+```
+
+```{r}
+# Step 3: Boxplot for numeric variables to detect outliers
+for (var in names(numeric_vars)) {
+  print(
+    ggplot(ou_data, aes(y = !!sym(var))) + 
+      geom_boxplot(fill = "coral", color = "black", na.rm = TRUE) +
+      theme_minimal() +
+      labs(title = paste("Boxplot of", var), y = var)
+  )
+}
+```
+
+##### **2.2 Remove Outliers**
+```{r}
+# Detect outliers using IQR for all numeric variables
+
+# Define the outlier detection function
+detect_outliers <- function(column) {
+    lower_bound <- quantile(column, 0.25) - 1.5 * IQR(column, na.rm = TRUE)
+  upper_bound <- quantile(column, 0.75) + 1.5 * IQR(column, na.rm = TRUE)
+    column > upper_bound | column < lower_bound
+}
+
+# Apply the function to all numeric columns
+outliers <- numeric_vars %>%
+  map(detect_outliers) %>%  
+  bind_cols() %>%  
+  rowSums() %>%  
+  as.logical()
+
+# Filter the rows with outliers in any numeric column
+outliers_data <- ou_data[outliers, ]
+
+# Remove outliers
+ou_data_clean<- ou_data[!outliers, ]
+```
+
+##### **2.3 Correlation and Relationships**
+```{r}
+# Step 1: Correlation matrix for numeric variables
+numeric_corr <- cor(numeric_vars, use = "complete.obs")
+
+# Heatmap of correlations
+library(corrplot)
+corrplot(numeric_corr, method = "color", type = "upper", tl.col = "black", tl.srt = 45)
+
+# Step 2: Boxplot to compare numeric variables with Flipped decision
+for (var in names(numeric_vars)) {
+  print(
+    ggplot(ou_data_clean, aes_string(x = "Flipped", y = var, fill = "Flipped")) +
+      geom_boxplot() +
+      theme_minimal() +
+      labs(title = paste("Boxplot of", var, "by Flipped"), x = "Flipped", y = var))}
+
+# Step 3: Bar plots to see how Flipped decision relates to categorical variables
+ggplot(ou_data_clean, aes(x = PrimaryInsuranceCategory, fill = Flipped)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Flipped Decision by Primary Insurance Category") +
+  theme_minimal()
+
+ggplot(ou_data_clean, aes(x = Gender, fill = Flipped)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Flipped Decision by Gender") +
+  theme_minimal()
+
+ggplot(ou_data_clean, aes(x = DRG01, fill = Flipped)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Flipped Decision by DRG01") +
+  theme_minimal()
+
+# Step 4: Scatter plots for relationships
+
+# Age vs Length of Stay
+ggplot(ou_data_clean, aes(x=Age, y=OU_LOS_hrs)) + 
+  geom_point(alpha=0.5, color = "skyblue2") +
+  geom_smooth(method = "lm", color = "coral", se = TRUE) +
+  ggtitle("Age vs Length of Stay") + 
+  xlab("Age") + 
+  ylab("Length of Stay (Hours)")
+
+
+# Age vs Oxygen Level (PulseOximetry)
+ggplot(ou_data_clean, aes(x = Age, y = PulseOximetry)) +
+  geom_point(color = "green3", alpha = 0.6) + 
+  geom_smooth(method = "lm", color = "coral", se = TRUE) + 
+  labs(title = "Age vs Oxygen Level", 
+       x = "Age", y = "Oxygen Level (PulseOximetry)")
+
+# Blood Pressure Lower vs Pulse
+ggplot(ou_data_clean, aes(x=BloodPressureLower, y=Pulse)) + 
+  geom_point(alpha=0.5, color = "coral") +  
+  geom_smooth(method = "lm", color = "coral", se = TRUE) +
+  ggtitle("Blood Pressure Lower vs Pulse") + 
+  xlab("Blood Pressure Lower") + 
+  ylab("Pulse")
+```
+
+
+#### 3. Classification (Logistic Regression, Decision Tree, and Random Forest)**
+
+##### **3.1 Logistic Regression Model**
+```{r}
+
+# Step 1: Partition datacet into 80% of training and 20% of testing
+
+set.seed(123)
+train.index=sample(c(1:dim(ou_data_clean)[1]), dim(ou_data_clean)[1]*0.8)
+train_data  = ou_data_clean[train.index, ]
+test_data = ou_data_clean[-train.index, ]
+
+# Step 2: Build the logistic regression model
+log_model <- glm(Flipped ~ .-OU_LOS_hrs, 
+                 data = train_data, family = binomial)
+# Summary Logistic Regression                 
+summary(log_model)
+
+# Predictions
+log_pred <- predict(log_model, test_data, type = "response")
+log_pred_class <- ifelse(log_pred > 0.5, "Yes", "No")
+
+# Confusion matrix
+log_conf_matrix <- confusionMatrix(factor(log_pred_class), test_data$Flipped)
+print(log_conf_matrix)
+
+# Step 3: Build other the logistic regression model
+log_model2 <- glm(Flipped ~ Gender + PrimaryInsuranceCategory + DRG01 , 
+                 data = train_data, family = binomial)
+# Summary Logistic Regression                 
+summary(log_model2)           
+
+# Predictions
+log_pred2 <- predict(log_model2, test_data, type = "response")
+log_pred_class2 <- ifelse(log_pred2 > 0.5, "Yes", "No")
+
+# Confusion matrix
+log_conf_matrix2 <- confusionMatrix(factor(log_pred_class2), test_data$Flipped)
+print(log_conf_matrix2)
+```
+
+##### **3.2 Decision Tree Model**
+
+```{r}
+# Decision Tree
+tree_model <- rpart(Flipped ~ .-OU_LOS_hrs, 
+                    data = train_data, method = "class")
+# Plot the tree
+library(rpart.plot)
+rpart.plot(tree_model, 
+           main = "Decision Tree for Flipped Decision",
+           type = 3,      
+           extra = 100,
+           fallen.leaves = TRUE, 
+           digits = 2, cex=0.7)
+
+# Predictions
+tree_predictions <- predict(tree_model, test_data, type = "class")
+confusionMatrix(tree_predictions, test_data$Flipped)
+```
+
+
+##### **3.3 Random Forest Model**
+
+```{r}
+# Random Forest Model
+set.seed(123)
+rf_model <- randomForest(Flipped ~ Gender+ PrimaryInsuranceCategory + DRG01 , 
+                         data = train_data, ntree = 100)
+
+# Summary
+print(rf_model)
+
+# Predictions
+rf_predictions <- predict(rf_model, test_data)
+confusionMatrix(rf_predictions, test_data$Flipped)
+```
+
+
+#### **Step 4: Model Evaluation**
+```{r}
+# Function to calculate performance metrics
+get_metrics_with_fp_fn <- function(predictions, actual) {
+  conf_matrix <- confusionMatrix(factor(predictions), factor(actual))
+  
+  # Extracting values from the confusion matrix
+  accuracy <- conf_matrix$overall['Accuracy']
+  sensitivity <- conf_matrix$byClass['Sensitivity']
+  specificity <- conf_matrix$byClass['Specificity']
+  
+  return(data.frame(
+    Accuracy = accuracy,
+    Sensitivity = sensitivity,
+    Specificity = specificity
+  ))
+}
+
+# Get metrics for Logistic Regression Model 1
+log_metrics1 <- get_metrics_with_fp_fn(log_pred_class, test_data$Flipped)
+
+# Get metrics for Logistic Regression Model 2
+log_metrics2 <- get_metrics_with_fp_fn(log_pred_class2, test_data$Flipped)
+
+# Get metrics for Decision Tree Model
+tree_metrics <- get_metrics_with_fp_fn(tree_predictions, test_data$Flipped)
+
+# Get metrics for Random Forest Model
+rf_metrics <- get_metrics_with_fp_fn(rf_predictions, test_data$Flipped)
+
+# Combine metrics into a single data frame for comparison
+model_comparison <- rbind(
+  cbind(Model = "Logistic Regression 1", log_metrics1),
+  cbind(Model = "Logistic Regression 2", log_metrics2),
+  cbind(Model = "Decision Tree", tree_metrics),
+  cbind(Model = "Random Forest", rf_metrics)
+)
+
+# Print the comparison table
+print(model_comparison)
+
+
+```
+
+
+
+**Step 5: Finalize Model Selection:**
+
+##### **5.1 Retrain the Final Model on the Entire Dataset**
+
+```{r}
+# Retrain the logistic regression model on the entire dataset
+final_model <- glm(Flipped ~ .- OU_LOS_hrs, 
+                         data = ou_data_clean, family = binomial)
+
+# Display the summary of the final model to check coefficients and performance
+summary(final_model)
+```
+
+##### **5.2 Analyze the Final Model’s Performance**
+
+```{r}
+# Predictions
+final_pred <- predict(final_model, ou_data_clean, type = "response")
+final_pred_class <- ifelse(final_pred > 0.5, "Yes", "No")
+
+# Confusion matrix
+final_conf_matrix <- confusionMatrix(factor(final_pred_class), ou_data_clean$Flipped)
+print(final_conf_matrix)
+```
+**Step 6: Final Model for Future Use:** 
+
+```{r}
+# Save the final logistic regression model to an .RDS file for future use
+saveRDS(final_model, file = "final_logistic_regression_model.rds")
+
+# To load the model later for predictions or analysis
+# finalmodel <- readRDS("final_logistic_regression_model.rds")
+```
+
+
+- Final Insights:
+
+```{r}
+# Extract model coefficients and interpret them
+coefficients <- coef(final_model)
+print(coefficients)
+
+# You can also calculate other goodness-of-fit metrics like AIC or pseudo R-squared
+AIC(final_model)  # Lower AIC is better
+
+```
+
